@@ -23,6 +23,25 @@ def load_image(image_path):
     
     return resized_img
 
+# Credits https://github.com/machrisaa/tensorflow-vgg
+def load_image2(path, height=None, width=None):
+    # load image
+    img = skimage.io.imread(path)
+    img = img / 255.0
+    if height is not None and width is not None:
+        ny = height
+        nx = width
+    elif height is not None:
+        ny = height
+        nx = img.shape[1] * ny / img.shape[0]
+    elif width is not None:
+        nx = width
+        ny = img.shape[0] * nx / img.shape[1]
+    else:
+        ny = img.shape[0]
+        nx = img.shape[1]
+    return skimage.transform.resize(img, (int(ny), int(nx)))
+
 
 # returns the top1 string
 def print_prob(prob, file_path):
