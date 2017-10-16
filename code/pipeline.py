@@ -3,7 +3,7 @@ import numpy as np
 
 #Custom
 import vgg19
-from helpers import load_image, print_prob
+from helpers import load_image, print_prob, load_image2
 
 #IO
 import matplotlib.pyplot as plt
@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from collections import OrderedDict
 
 VGG_PATH = '../data/vgg/'
+DATA_PATH = '../data/'
 
 from sklearn import decomposition  
 
@@ -35,129 +36,37 @@ def get_K_repr(K, layer):
     
     return W, H
 
-
-def get_maps(img_content, img_context, K):
-    
-    content_shape = img_content.shape
-    context_shape = img_context.shape
-    
-    #print(content_shape)
-    #print(context_shape)
-    
-    batch = np.concatenate((img_content.reshape((1, content_shape[0], content_shape[1], 3)), img_context.reshape((1, context_shape[0], context_shape[1], 3))), 0)
-
-    tf.reset_default_graph()
-    with tf.device('/gpu:0'):
-        with tf.Session() as sess:
-
-            images = tf.placeholder("float", [2, 224, 224, 3])
-            feed_dict = {images: batch}
-
-            vgg = vgg19.Vgg19(VGG_PATH + 'vgg19.npy')
-
-            vgg.build(images)
-
-            '''
-            conv2_1 = sess.run(vgg.conv2_1, feed_dict=feed_dict)
-            conv2_2 = sess.run(vgg.conv2_2, feed_dict=feed_dict)
-
-            conv3_1 = sess.run(vgg.conv3_1, feed_dict=feed_dict)
-            conv3_2 = sess.run(vgg.conv3_2, feed_dict=feed_dict)
-
-            conv4_1 = sess.run(vgg.conv4_1, feed_dict=feed_dict)
-            conv4_2 = sess.run(vgg.conv4_2, feed_dict=feed_dict)
-            conv4_3 = sess.run(vgg.conv4_3, feed_dict=feed_dict)
-            
-
-            conv5_1 = sess.run(vgg.conv5_1, feed_dict=feed_dict)
-            conv5_2 = sess.run(vgg.conv5_2, feed_dict=feed_dict)
-            conv5_3 = sess.run(vgg.conv5_3, feed_dict=feed_dict)
-            conv5_4 = sess.run(vgg.conv5_4, feed_dict=feed_dict)
-            
-            
-            conv3_3 = sess.run(vgg.conv3_3, feed_dict=feed_dict)
-           
-            conv3_4 = sess.run(vgg.conv3_4, feed_dict=feed_dict)  
-            '''
-            
-            conv4_4 = sess.run(vgg.conv4_4, feed_dict=feed_dict)
-            
-            sess.close();
-        
-    '''
-    Ws_21, Hs_21 = get_K_repr(K, conv2_1)
-    Ws_22, Hs_22 = get_K_repr(K, conv2_2)   
-    
-    
-    Ws_31, Hs_31 = get_K_repr(K, conv3_1)
-    Ws_32, Hs_32 = get_K_repr(K, conv3_2)
-
-         
-    Ws_41, Hs_41 = get_K_repr(K, conv4_1)
-    Ws_42, Hs_42 = get_K_repr(K, conv4_2)
-
-    
-    Ws_51, Hs_51 = get_K_repr(K, conv5_1)
-    Ws_52, Hs_52 = get_K_repr(K, conv5_2)
-    Ws_53, Hs_53 = get_K_repr(K, conv5_3)
-    Ws_54, Hs_54 = get_K_repr(K, conv5_4)
-    
-    
-    Ws_43, Hs_43 = get_K_repr(K, conv4_3)
-   
-    Ws_33, Hs_33 = get_K_repr(K, conv3_3)
-    
-    Ws_34, Hs_34 = get_K_repr(K, conv3_4)
-    '''
-    Ws_44, Hs_44 = get_K_repr(K, conv4_4)
-    
-    '''
-        'conv2_1' : [Ws_21, Hs_21],
-        'conv2_2' : [Ws_22, Hs_22],
-        
-        'conv3_1' : [Ws_31, Hs_31],
-        'conv3_2' : [Ws_32, Hs_32],   
-        'conv3_3' : [Ws_33, Hs_33],
-        'conv3_4' : [Ws_34, Hs_34],  
-    
-        'conv4_1' : [Ws_41, Hs_41],
-        'conv4_2' : [Ws_42, Hs_42],
-        'conv4_3' : [Ws_43, Hs_43],
-        
-         
-        'conv5_1' : [Ws_51, Hs_51],
-        'conv5_2' : [Ws_52, Hs_52],
-        'conv5_3' : [Ws_53, Hs_53],
-        'conv5_4' : [Ws_54, Hs_54], 
-        
-    '''
-       
-    repr_dict = {
- 
-        'conv4_4' : [Ws_44, Hs_44], 
-    }
-
-    return OrderedDict(sorted(repr_dict.items()))
-
-        
-    #prob = sess.run(vgg.prob, feed_dict=feed_dict)
-    #print_prob(prob[0], VGG_PATH + 'vgg_classes.txt')
-    #print_prob(prob[1], VGG_PATH + 'vgg_classes.txt')
-    
-    
 #courtesy of https://stackoverflow.com/questions/21030391/how-to-normalize-array-numpy
 def normalized(a, axis=-1, order=2):
     l2 = np.atleast_1d(np.linalg.norm(a, order, axis))
     l2[l2==0] = 1
     return a / np.expand_dims(l2, axis)
+
+def normalized_all(a, b):
     
-def get_maps2(img_content, img_context, K):
+    min_ab = np.min(a) if np.min(a) <= np.min(b) else np.min(b)
+    a2 = a - min_ab
+    b2 = b - min_ab
+    max_ab = np.max(a2) if np.max(a2) >= np.max(b2) else np.max(b2)
     
-    content_shape = img_content.shape
-    context_shape = img_context.shape
+    return a2 / max_ab, b2 / max_ab
+
+def normalized_k(a, b):
     
-    batch1 = img_content.reshape(1, content_shape[0], content_shape[1], 3)
-    batch2 = img_context.reshape(1, context_shape[0], context_shape[1], 3)
+    a2, b2 = [],[]
+    
+    for i in range(0, a.shape[2]):
+        ret = normalized_all(a[:,:,i], b[i])
+        a2.append(ret[0])
+        b2.append(ret[1])
+        
+    return a2,b2
+
+    
+def get_maps(img_content, img_context, K, layer_name="conv4_4"):
+    
+    batch1 = img_content.reshape(1, img_content.shape[0], img_content.shape[1], 3)
+    batch2 = img_context.reshape(1, img_context.shape[0], img_context.shape[1], 3)
 
     tf.reset_default_graph()
     with tf.device('/gpu:0'):
@@ -167,20 +76,70 @@ def get_maps2(img_content, img_context, K):
             images = tf.placeholder("float", [1, None, None, 3])
             vgg.build(images)
             
+            layer_dict = {
+               
+                'conv2_1' : vgg.conv2_1,
+                'conv2_2' : vgg.conv2_2,
+
+                'conv3_1' : vgg.conv3_1,
+                'conv3_2' : vgg.conv3_2,   
+                'conv3_3' : vgg.conv3_3,
+                'conv3_4' : vgg.conv3_4,  
+
+                'conv4_1' : vgg.conv4_1,
+                'conv4_2' : vgg.conv4_2,
+                'conv4_3' : vgg.conv4_3,
+                'conv4_4' : vgg.conv4_4, 
+
+                'conv5_1' : vgg.conv5_1,
+                'conv5_2' : vgg.conv5_2,
+                'conv5_3' : vgg.conv5_3,
+                'conv5_4' : vgg.conv5_4, 
+            }
+            
+            layer = layer_dict.get(layer_name)
+
+            
+            if (layer == None):
+                raise ValueError("layer specified not found in dictionnary")
+            
             feed_dict = {images: batch1}
             feed_dict2 = {images: batch2}
-            conv4_4 = [sess.run(vgg.conv4_4, feed_dict=feed_dict)[0], sess.run(vgg.conv4_4, feed_dict=feed_dict2)[0]]     
+            conv = [sess.run(layer, feed_dict=feed_dict)[0], sess.run(layer, feed_dict=feed_dict2)[0]]     
 
-            #conv3_4 = sess.run(vgg.conv3_4, feed_dict=feed_dict)
             sess.close();
         
   
-    Ws, Hs = get_K_repr(K, conv4_4)
-    #[array_s3[0], array_s3_2[0]]
+    Ws, Hs = get_K_repr(K, conv)
        
     repr_dict = {
-        'conv4_4' : [normalized(Ws), normalized(Hs)],   
+        layer_name : [Ws, Hs],   
     }
 
     return OrderedDict(sorted(repr_dict.items()))
+    
+
+def gen_maps(image1_path, image2_path, K, up_width=0, layer_name="conv3_4", normalize_per_k=True):
+    
+    if up_width == 0:
+        img_content = load_image2(DATA_PATH + image1_path)
+        img_context = load_image2(DATA_PATH + image2_path)
+    else:
+        img_content = load_image2(DATA_PATH + image1_path, width=up_width)
+        img_context = load_image2(DATA_PATH + image2_path, width=up_width)
+    
+    dicto = get_maps(img_content, img_context, K, layer_name=layer_name)
+
+    
+    for key, values in dicto.items():
+        
+        if (normalize_per_k):
+            Ws, Hs = normalized_k(values[0], values[1])
+            Ws = np.array(Ws)
+            Hs = np.array(Hs)
+        else:
+            Ws, Hs = normalized_all(values[0], values[1])
+            
+    return Ws, Hs
+
     

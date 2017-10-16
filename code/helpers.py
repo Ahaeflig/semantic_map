@@ -40,7 +40,8 @@ def load_image2(path, height=None, width=None):
     else:
         ny = img.shape[0]
         nx = img.shape[1]
-    return skimage.transform.resize(img, (int(ny), int(nx)))
+        
+    return skimage.transform.resize(img, (int(ny), int(nx)), mode='constant')
 
 
 # returns the top1 string
