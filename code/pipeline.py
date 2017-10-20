@@ -3,6 +3,7 @@ import numpy as np
 
 #Custom
 import vgg19
+import vgg19_bn
 from helpers import load_image, print_prob, load_image2
 
 #IO
@@ -36,14 +37,13 @@ def get_K_repr(K, layer):
     
     return W, H
 
-#courtesy of https://stackoverflow.com/questions/21030391/how-to-normalize-array-numpy
+#courtesy of https://stackoverflow.com/questions/21030391/how-to-normalize-array-numpy - not used
 def normalized(a, axis=-1, order=2):
     l2 = np.atleast_1d(np.linalg.norm(a, order, axis))
     l2[l2==0] = 1
     return a / np.expand_dims(l2, axis)
 
 def normalized_all(a, b):
-    
     min_ab = np.min(a) if np.min(a) <= np.min(b) else np.min(b)
     a2 = a - min_ab
     b2 = b - min_ab
@@ -52,7 +52,6 @@ def normalized_all(a, b):
     return a2 / max_ab, b2 / max_ab
 
 def normalized_k(a, b):
-    
     a2, b2 = [],[]
     
     for i in range(0, a.shape[2]):
@@ -69,10 +68,11 @@ def get_maps(img_content, img_context, K, layer_name="conv4_4"):
     batch2 = img_context.reshape(1, img_context.shape[0], img_context.shape[1], 3)
 
     tf.reset_default_graph()
-    with tf.device('/gpu:0'):
+    with tf.device('/cpu:0'):
         with tf.Session() as sess:
 
-            vgg = vgg19.Vgg19(VGG_PATH + 'vgg19.npy')
+            #vgg = vgg19.Vgg19(VGG_PATH + 'vgg19.npy')
+            vgg = vgg19_bn.Vgg19_bn(VGG_PATH + 'vgg19_bn.npy')
             images = tf.placeholder("float", [1, None, None, 3])
             vgg.build(images)
             
