@@ -72,7 +72,6 @@ class Vgg19:
         self.conv5_4 = self.conv_layer(self.conv5_3, "conv5_4")
         self.pool5 = self.max_pool(self.conv5_4, 'pool5')
 
-        '''
         self.fc6 = self.fc_layer(self.pool5, "fc6")
         
         assert self.fc6.get_shape().as_list()[1:] == [4096]
@@ -85,7 +84,6 @@ class Vgg19:
 
         self.prob = tf.nn.softmax(self.fc8, name="prob")
 
-        '''
         self.data_dict = None
         
         #print(("build model finished: %ds" % (time.time() - start_time)))

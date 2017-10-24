@@ -5,11 +5,9 @@ import numpy as np
 import time
 import inspect
 
-
 #VGG_MEAN = [103.939, 116.779, 123.68]
 VGG_MEAN = [0.485, 0.456, 0.406]
 VGG_STD = [0.229, 0.224, 0.225]
-
 
 BN_EPSILON = 0.001
 
@@ -20,35 +18,21 @@ class Vgg19_bn:
             path = os.path.abspath(os.path.join(path, os.pardir))
             path = os.path.join(path, "vgg19_bn.npy")
             vgg19_npy_path = path
-            print(vgg19_npy_path)
+            #print(vgg19_npy_path)
 
         self.data_dict = np.load(vgg19_npy_path, encoding='latin1').item()
         #print("npy file loaded")
-        
+     
+    #    for t, m, s in zip(tensor, mean, std):
+    #    t.sub_(m).div_(s)
     def normalize_batch(self, d, mean_wanted, std_wanted):
         curr_mean, curr_var = tf.nn.moments(d, axes=[1])
-        return mean_wanted + (d - curr_mean) * (std_wanted / tf.sqrt(curr_var))
-        
+        #return mean_wanted + (d - curr_mean) * (std_wanted / tf.sqrt(curr_var))
+        return (d - mean_wanted) / std_wanted
         
     def build(self, rgb):
-        """
-        load variable from npy to build the VGG
-
-        :param rgb: rgb image [batch, height, width, 3] values scaled [0, 1]
-        """
-
-        start_time = time.time()
-        #print("build model started")
-
-        # Convert RGB to BGR
+        
         red, green, blue = tf.split(axis=3, num_or_size_splits=3, value=rgb)
-        '''
-        assert red.get_shape().as_list()[1:] == [224, 224, 1]
-        assert green.get_shape().as_list()[1:] == [224, 224, 1]
-        assert blue.get_shape().as_list()[1:] == [224, 224, 1]
-       
-        assert bgr.get_shape().as_list()[1:] == [224, 224, 3]
-        '''
         
         rgb_scaled = tf.concat(axis=3, values=[
             self.normalize_batch(red, VGG_MEAN[0], VGG_STD[0]),
@@ -56,8 +40,7 @@ class Vgg19_bn:
             self.normalize_batch(blue, VGG_MEAN[2], VGG_STD[2]),
         ])
         
-        print(rgb_scaled.shape)
-        
+        #input, tf_name, weights+bias, BN
         self.conv1_1 = self.conv_layer(rgb_scaled, "conv1_1", "features.0", "features.1")
         self.conv1_2 = self.conv_layer(self.conv1_1, "conv1_2", "features.3", "features.4")
         
@@ -84,28 +67,22 @@ class Vgg19_bn:
         self.conv5_3 = self.conv_layer(self.conv5_2, "conv5_3", "features.46", "features.47")
         self.conv5_4 = self.conv_layer(self.conv5_3, "conv5_4", "features.49", "features.50")
         self.pool5 = self.max_pool(self.conv5_4, 'pool5')
-
-        '''
-        self.fc6 = self.fc_layer(self.pool5, "fc6")
+        
+        #'classifier.0.weight', 'classifier.0.bias', 'classifier.3.weight', 'classifier.3.bias', 'classifier.6.weight', 'classifier.6.bias'
+        
+        self.fc6 = self.fc_layer(self.pool5, "fc6", "classifier.0")
         
         assert self.fc6.get_shape().as_list()[1:] == [4096]
-        self.relu6 = tf.nn.relu(self.fc6)
+        self.relu6 = tf.nn.relu(self.fc6, name="relu6")
 
-        self.fc7 = self.fc_layer(self.relu6, "fc7")
+        self.fc7 = self.fc_layer(self.relu6, "fc7", "classifier.3")
         self.relu7 = tf.nn.relu(self.fc7)
 
-        self.fc8 = self.fc_layer(self.relu7, "fc8")
-
+        self.fc8 = self.fc_layer(self.relu7, "fc8", "classifier.6")
+        
         self.prob = tf.nn.softmax(self.fc8, name="prob")
-
-        '''
         
         self.data_dict = None
-        
-        #print(("build model finished: %ds" % (time.time() - start_time)))
-
-    def avg_pool(self, bottom, name):
-        return tf.nn.avg_pool(bottom, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name=name)
 
     def max_pool(self, bottom, name):
         return tf.nn.max_pool(bottom, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name=name)
@@ -115,19 +92,15 @@ class Vgg19_bn:
             
             filt = self.get_conv_filter(feature_name)
             
-            #(64, 3, 3, 3) => pytorch
+            #(64, 3, 3, 3) => pytorch (output x input x k_x x k_y)
             #[filter_height, filter_width, in_channels, out_channels] => tf
             
             filt = tf.transpose(filt, [2, 3, 1, 0])
             conv = tf.nn.conv2d(bottom, filt, [1, 1, 1, 1], padding='SAME')
             
-            #print(filt.get_shape())
-            #print(conv.get_shape())
-
             conv_biases = self.get_bias(feature_name)
             bias = tf.nn.bias_add(conv, conv_biases)
             
-            # TODO add BN
             beta = self.get_bias(bn_name)
             gamma = self.get_weight(bn_name)
             
@@ -135,25 +108,27 @@ class Vgg19_bn:
             variance = self.get_bn_var(bn_name)
             
             bn = tf.nn.batch_normalization(bias, mean, variance, beta, gamma, BN_EPSILON)
-            #bn = tf.nn.batch_normalization(bias, mean, variance, gamma, beta, BN_EPSILON)
-            
             
             relu = tf.nn.relu(bn)
             return relu
 
-    def fc_layer(self, bottom, name, npy_name):
+    def fc_layer(self, bottom, name, feature_name):
         with tf.variable_scope(name):
+            
             shape = bottom.get_shape().as_list()
             dim = 1
             for d in shape[1:]:
                 dim *= d
             x = tf.reshape(bottom, [-1, dim])
 
-            weights = self.get_weight(npy_name)
-            biases = self.get_bias(npy_name)
-
-            # Fully connected layer. Note that the '+' operation automatically
-            # broadcasts the biases.
+            #x = (1, 25088)
+            #weights = (4096, 25088)
+            weights = self.get_weight(feature_name)
+            #bias = (4096,)
+            biases = self.get_bias(feature_name)
+            
+            weights = tf.transpose(weights, [1, 0])
+            
             fc = tf.nn.bias_add(tf.matmul(x, weights), biases)
 
             return fc
@@ -165,10 +140,10 @@ class Vgg19_bn:
         return tf.constant(self.data_dict[name + ".running_var"] , name="bn_var")
     
     def get_conv_filter(self, name):
-        return tf.constant(self.data_dict[name + ".weight"], name="filter")
+        return tf.constant(self.data_dict[name + ".weight"], name="filter_weight")
 
     def get_bias(self, name):
         return tf.constant(self.data_dict[name + ".bias"], name="biases")
 
     def get_weight(self, name):
-        return tf.constant(self.data_dict[name + ".weight"], name="weights")
+        return tf.constant(self.data_dict[name + ".weight"], name="fc_weights")
