@@ -116,14 +116,14 @@ def get_maps(img_content, img_context, K, layer_name="conv4_4"):
     batch2 = img_context.reshape(1, img_context.shape[0], img_context.shape[1], 3)
 
     tf.reset_default_graph()
-    with tf.device('/gpu:0'):
+    with tf.device('/cpu:0'):
         with tf.Session() as sess:
 
             #vgg = vgg19.Vgg19(VGG_PATH + 'vgg19.npy')
             #images = tf.placeholder("float", [1, None, None, 3])
             
             vgg = vgg19_bn.Vgg19_bn(VGG_PATH + 'vgg19_bn.npy')
-            images = tf.placeholder("float", [1, 224, 224, 3])
+            images = tf.placeholder("float", [1, None, None, 3])
             vgg.build(images)
             
             writer = tf.summary.FileWriter("output", sess.graph)
@@ -159,13 +159,13 @@ def get_maps(img_content, img_context, K, layer_name="conv4_4"):
             feed_dict2 = {images: batch2}
             conv = [sess.run(layer, feed_dict=feed_dict)[0], sess.run(layer, feed_dict=feed_dict2)[0]]   
             
+            '''
             print(sess.run(vgg.relu6, feed_dict=feed_dict))
-            
             prob = sess.run(vgg.prob, feed_dict=feed_dict)
             print_prob(prob[0], "../data/vgg/vgg_classes.txt")
             prob2 = sess.run(vgg.prob, feed_dict=feed_dict2)
             print_prob(prob2[0], "../data/vgg/vgg_classes.txt")
-            
+            '''
             
             sess.close();
         
@@ -198,7 +198,7 @@ def gen_maps(image1_path, image2_path, K, up_width=0, layer_name="conv3_4", norm
             Ws = np.array(Ws)
             Hs = np.array(Hs)
         else:
-            Ws, Hs = normalized_all(values[0], values[1])
+            Ws, Hs = values[0], values[1]
             
     return Ws, Hs
 

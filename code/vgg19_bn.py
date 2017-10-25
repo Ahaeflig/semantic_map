@@ -69,7 +69,7 @@ class Vgg19_bn:
         self.pool5 = self.max_pool(self.conv5_4, 'pool5')
         
         #'classifier.0.weight', 'classifier.0.bias', 'classifier.3.weight', 'classifier.3.bias', 'classifier.6.weight', 'classifier.6.bias'
-        
+        '''
         self.fc6 = self.fc_layer(self.pool5, "fc6", "classifier.0")
         
         assert self.fc6.get_shape().as_list()[1:] == [4096]
@@ -83,7 +83,8 @@ class Vgg19_bn:
         self.prob = tf.nn.softmax(self.fc8, name="prob")
         
         self.data_dict = None
-
+        '''
+        
     def max_pool(self, bottom, name):
         return tf.nn.max_pool(bottom, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name=name)
 
