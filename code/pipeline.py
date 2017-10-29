@@ -12,7 +12,6 @@ import matplotlib.pyplot as plt
 
 #Datastructure
 from collections import OrderedDict
-
 VGG_PATH = '../data/vgg/'
 DATA_PATH = '../data/'
 
@@ -70,8 +69,8 @@ def get_layer_repr(img, layer_name="conv4_4"):
     with tf.device('/cpu:0'):
         with tf.Session() as sess:
 
-            #vgg = vgg19.Vgg19(VGG_PATH + 'vgg19.npy')
-            vgg = vgg19_bn.Vgg19_bn(VGG_PATH + 'vgg19_bn.npy')
+            vgg = vgg19.Vgg19(VGG_PATH + 'vgg19.npy')
+            #vgg = vgg19_bn.Vgg19_bn(VGG_PATH + 'vgg19_bn.npy')
             
             images = tf.placeholder("float", [1, None, None, 3])
             vgg.build(images)
@@ -119,11 +118,11 @@ def get_maps(img_content, img_context, K, layer_name="conv4_4"):
     with tf.device('/cpu:0'):
         with tf.Session() as sess:
 
-            #vgg = vgg19.Vgg19(VGG_PATH + 'vgg19.npy')
-            #images = tf.placeholder("float", [1, None, None, 3])
-            
-            vgg = vgg19_bn.Vgg19_bn(VGG_PATH + 'vgg19_bn.npy')
+            vgg = vgg19.Vgg19(VGG_PATH + 'vgg19.npy')
             images = tf.placeholder("float", [1, None, None, 3])
+            
+            #vgg = vgg19_bn.Vgg19_bn(VGG_PATH + 'vgg19_bn.npy')
+            #images = tf.placeholder("float", [1, None, None, 3])
             vgg.build(images)
             
             writer = tf.summary.FileWriter("output", sess.graph)

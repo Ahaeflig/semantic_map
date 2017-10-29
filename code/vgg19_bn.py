@@ -24,7 +24,7 @@ class Vgg19_bn:
         #print("npy file loaded")
      
     #    for t, m, s in zip(tensor, mean, std):
-    #    t.sub_(m).div_(s)
+        #    t.sub_(m).div_(s)
     def normalize_batch(self, d, mean_wanted, std_wanted):
         curr_mean, curr_var = tf.nn.moments(d, axes=[1])
         #return mean_wanted + (d - curr_mean) * (std_wanted / tf.sqrt(curr_var))
@@ -41,7 +41,7 @@ class Vgg19_bn:
         ])
         
         #input, tf_name, weights+bias, BN
-        self.conv1_1 = self.conv_layer(rgb_scaled, "conv1_1", "features.0", "features.1")
+        self.conv1_1 = self.conv_layer(rgb, "conv1_1", "features.0", "features.1")
         self.conv1_2 = self.conv_layer(self.conv1_1, "conv1_2", "features.3", "features.4")
         
         self.pool1 = self.max_pool(self.conv1_2, 'pool1')
@@ -69,7 +69,6 @@ class Vgg19_bn:
         self.pool5 = self.max_pool(self.conv5_4, 'pool5')
         
         #'classifier.0.weight', 'classifier.0.bias', 'classifier.3.weight', 'classifier.3.bias', 'classifier.6.weight', 'classifier.6.bias'
-        '''
         self.fc6 = self.fc_layer(self.pool5, "fc6", "classifier.0")
         
         assert self.fc6.get_shape().as_list()[1:] == [4096]
@@ -82,8 +81,11 @@ class Vgg19_bn:
         
         self.prob = tf.nn.softmax(self.fc8, name="prob")
         
+        self.amax = tf.argmax(self.fc8, name="argmax")
+        
         self.data_dict = None
-        '''
+        
+        #224.53738
         
     def max_pool(self, bottom, name):
         return tf.nn.max_pool(bottom, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name=name)
@@ -108,7 +110,15 @@ class Vgg19_bn:
             mean = self.get_bn_mean(bn_name)
             variance = self.get_bn_var(bn_name)
             
-            bn = tf.nn.batch_normalization(bias, mean, variance, beta, gamma, BN_EPSILON)
+            #bn = tf.nn.batch_normalization(bias, mean, variance, beta, gamma, BN_EPSILON, )
+            bn, _, _ = tf.nn.fused_batch_norm(bias,
+            gamma,
+            beta,  # pylint: disable=invalid-name
+            mean=mean,
+            variance=variance,
+            epsilon=BN_EPSILON,
+            is_training=False,
+            data_format="NHWC")
             
             relu = tf.nn.relu(bn)
             return relu

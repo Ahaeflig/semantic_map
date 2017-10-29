@@ -7,6 +7,24 @@ import inspect
 
 VGG_MEAN = [103.939, 116.779, 123.68]
 
+layer_dict = {
+    'conv2_1' : self.conv2_1,
+    'conv2_2' : self.conv2_2,
+    'conv3_1' : self.conv3_1,
+    'conv3_2' : self.conv3_2,   
+    'conv3_3' : self.conv3_3,
+    'conv3_4' : self.conv3_4,  
+    'conv4_1' : self.conv4_1,
+    'conv4_2' : self.conv4_2,
+    'conv4_3' : self.conv4_3,
+    'conv4_4' : self.conv4_4, 
+    'conv5_1' : self.conv5_1,
+    'conv5_2' : self.conv5_2,
+    'conv5_3' : self.conv5_3,
+    'conv5_4' : self.conv5_4, 
+}
+        
+
 class Vgg19:
     def __init__(self, vgg19_npy_path=None):
         if vgg19_npy_path is None:
@@ -71,7 +89,18 @@ class Vgg19:
         self.conv5_3 = self.conv_layer(self.conv5_2, "conv5_3")
         self.conv5_4 = self.conv_layer(self.conv5_3, "conv5_4")
         self.pool5 = self.max_pool(self.conv5_4, 'pool5')
+        
+        layers = [layer_dict.get(layer_name) for layer_name in layer_dict]
+        
+        
+        target_shape_width_im1 = conv_im1[9].shape[0]
+        target_shape_height_im1 = conv_im1[9].shape[1]
+        
+        resized_layer = [tf.image.resize_bilinear(l, (target_shape_width_im1, target_shape_height_im1)) for l in layers]
+        
+        self.hypercolumn = (tf.concat(0, [l for l in resized_layer], name="hypercolumn")
 
+        '''
         self.fc6 = self.fc_layer(self.pool5, "fc6")
         
         assert self.fc6.get_shape().as_list()[1:] == [4096]
@@ -85,8 +114,9 @@ class Vgg19:
         self.prob = tf.nn.softmax(self.fc8, name="prob")
 
         self.data_dict = None
-        
+        '''
         #print(("build model finished: %ds" % (time.time() - start_time)))
+        
 
     def avg_pool(self, bottom, name):
         return tf.nn.avg_pool(bottom, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name=name)
