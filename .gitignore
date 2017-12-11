@@ -2,3 +2,8 @@
 data/
 
 code/output/
+
+.idea/
+
+__pycache__/
+
