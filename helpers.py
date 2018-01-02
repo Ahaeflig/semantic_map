@@ -28,6 +28,7 @@ import scipy.sparse as sps
 import numpy as np
 import tensorflow as tf
 
+from sklearn.utils.extmath import softmax
 
 VGG_PATH = 'data/vgg/'
 DATA_PATH = 'data/'
@@ -186,7 +187,7 @@ def compute_affinity_matrix(content_maps, reference_maps):
 
 
 # Assumes affinity matrix from @compute_affinity_matrix, shape_r/shape_l = [H,W] from layer
-def get_masks(K, affinity_matrix, shape_r, shape_l, orphan=False, normalize=False):
+def get_masks(K, affinity_matrix, shape_r, shape_l, orphan=False, normalize=False, soft_temp=0.1):
     print("Computing {} masks".format(K))
 
     estimator = decomposition.NMF(n_components=K, init='random', tol=5e-3, random_state=0)
@@ -195,6 +196,7 @@ def get_masks(K, affinity_matrix, shape_r, shape_l, orphan=False, normalize=Fals
 
     L = L.transpose().reshape(K, shape_r[0], shape_r[1])
     R = R.reshape(K, shape_l[0], shape_l[1])
+
 
     if normalize:
         '''
@@ -210,35 +212,41 @@ def get_masks(K, affinity_matrix, shape_r, shape_l, orphan=False, normalize=Fals
             maxR = R[k].max()
             R[k] /= maxR;
 
-            '''
+    '''else:
+        for k in range(K):
             maxLR = max(L[k].max(), R[k].max())
             print(maxLR)
             L[k] /= maxLR;
             R[k] /= maxLR;
             '''
 
-    # Threshold and binary masks
-    threshold = 0.5;
-    L = np.where(L > threshold, 1.0, 0.0)
-    R = np.where(R > threshold, 1.0, 0.0)
-
     if orphan:
-        L_all = L.sum(axis=0)
-        np.clip(L_all, 0.0, 1.0, L_all)
-        #L_all /= L_all.max()
+        '''L_all = L.sum(axis=0)
+        # np.clip(L_all, 0.0, 1.0, L_all)
+        L_all /= L_all.max()
         L_orphan = 1 - L_all
         L = np.concatenate((L, L_orphan[None, ...]))
 
         R_all = R.sum(axis=0)
-        np.clip(R_all, 0.0, 1.0, R_all)
-        #R_all /= R_all.max()
+        # np.clip(R_all, 0.0, 1.0, R_all)
+        R_all /= R_all.max()
         R_orphan = 1 - R_all
         R = np.concatenate((R, R_orphan[None, ...]))
+        '''
 
-    return L, R
+        L_orphan = np.ones(L[0].shape) * L.mean()
+        R_orphan = np.ones(R[0].shape) * R.mean()
+
+        L = np.concatenate((L, L_orphan[None, ...]))
+        R = np.concatenate((R, R_orphan[None, ...]))
+
+        Lsm = softmax(L.reshape((L.shape[0], -1)).transpose() / soft_temp).transpose().reshape(L.shape)
+        Rsm = softmax(R.reshape((R.shape[0], -1)).transpose() / soft_temp).transpose().reshape(R.shape)
+
+    return Lsm, Rsm
 
 
-def show_masks(original_left, original_right, L, R, K, cmap="Blues", normalized=True, show_original=True, show_axis=False):
+def show_masks(original_left, original_right, L, R, K, cmap="Blues", normalized=True, show_original=True, show_axis=False, vmax=1):
 
     plt.figure(figsize=(10, 8))
     plt.title("Original")
@@ -262,19 +270,19 @@ def show_masks(original_left, original_right, L, R, K, cmap="Blues", normalized=
 
         plt.subplot(2, 2, 1)
         if normalized:
-            plt.imshow(L[k], cmap=cmap, vmin=0, vmax=1)
+            plt.imshow(L[k], cmap=cmap, vmin=0, vmax=vmax)
             if not show_axis:
                 plt.axis('off')
 
             #plt.colorbar()
             if show_original:
-                plt.imshow(img_content, vmin=0, vmax=1, alpha=0.2)
+                plt.imshow(img_content, vmin=0, vmax=vmax, alpha=0.2)
 
             plt.subplot(2, 2, 2)
-            plt.imshow(R[k], cmap=cmap, vmin=0, vmax=1)
+            plt.imshow(R[k], cmap=cmap, vmin=0, vmax=vmax)
             #plt.colorbar()
             if show_original:
-                plt.imshow(img_context, vmin=0, vmax=1, alpha=0.2)
+                plt.imshow(img_context, vmin=0, vmax=vmax, alpha=0.2)
 
             if not show_axis:
                 plt.axis('off')

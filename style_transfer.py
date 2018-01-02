@@ -6,6 +6,7 @@ import skimage.transform
 from helpers import *
 
 from helpers import getLaplacian
+from VOChelpers import *
 
 # IO
 import matplotlib.pyplot as plt
@@ -22,8 +23,9 @@ DATA_PATH = 'data/'
 
 
 class StyleTransfer:
+    #Todo create a mask object instead of all this stuff in params
     def __init__(self, content_layer_name, style_layers_name, mask_layer_name, init_image, content_image, style_image, session, num_iter,
-                 content_style_loss_ratio, K=15, normalize=True, debug=False, orphan=True, use_dcrf=True, matting_loss=1000, tv_loss=1000):
+                 content_loss_weight, style_loss_weight, K=15, normalize=True, debug=False, orphan=True, use_dcrf=True, matting_loss=1000, tv_loss=1000, soft_temp=0.1, voc_names=[]):
 
         # Right now we only want to use same sizes
         assert (content_image.shape == style_image.shape)
@@ -40,12 +42,16 @@ class StyleTransfer:
         self.num_iter = num_iter
 
         self.sess = session
-        self.lambda_ = content_style_loss_ratio
+        self.content_loss_weight = content_loss_weight
+        self.style_loss_weight = style_loss_weight
 
         self.matting_loss = matting_loss
         self.tv_loss = tv_loss
 
         self.debug = debug
+
+        self.image_final = 0
+        self.voc_names = voc_names
 
         ''' 
         =======================================
@@ -69,6 +75,7 @@ class StyleTransfer:
         self.mask_content_layer = eval_layers(self.sess, content_image, self.vgg, [self.mask_layer_name])
         self.mask_style_layer = eval_layers(self.sess, style_image, self.vgg, [self.mask_layer_name])
 
+
         '''
         self.vgg_atrous = vgg19_atrous.Vgg19_Atrous(VGG_PATH + 'vgg19.npy')
         self.vgg_atrous.build(images)
@@ -86,29 +93,41 @@ class StyleTransfer:
                                          self.mask_style_layer.get(self.mask_layer_name))
 
 
-        if self.K > 0:
-            L, R = get_masks(K, self.A, self.mask_content_layer.get(self.mask_layer_name).shape[1:3],
-                             self.mask_style_layer.get(self.mask_layer_name).shape[1:3], orphan=orphan, normalize=normalize)
+        self.orphan = 0
+        if not voc_names:
+            if self.K > 0:
+                L, R = get_masks(K, self.A, self.mask_content_layer.get(self.mask_layer_name).shape[1:3],
+                                 self.mask_style_layer.get(self.mask_layer_name).shape[1:3], orphan=orphan, normalize=normalize, soft_temp=soft_temp)
 
-            self.orphan = 0
-
-            #Add orphan masks
-            if orphan:
-                self.orphan = 1
-
-
-            if debug:
-                show_masks(self.content_image, self.style_image, L, R, self.K + self.orphan, show_axis=True)
-
-            if use_dcrf:
-                L = [dcrf_refine(content_image * 255, l) for l in L]
-                R = [dcrf_refine(style_image * 255, r) for r in R]
+                #Add orphan masks
+                if orphan:
+                    self.orphan = 1
 
                 if debug:
-                    show_masks(self.content_image, self.style_image, L, R, self.K + self.orphan)
+                    show_masks(self.content_image, self.style_image, L, R, self.K + self.orphan, show_axis=True)
 
-            self.L = L
-            self.R = R
+                if use_dcrf:
+                    L = [dcrf_refine(content_image * 255, l) for l in L]
+                    R = [dcrf_refine(style_image * 255, r) for r in R]
+
+                    if debug:
+                        show_masks(self.content_image, self.style_image, L, R, self.K + self.orphan)
+
+                self.L = L
+                self.R = R
+        else:
+            #Get voc masks
+            L_voc = load_voc_mask(voc_names[0], shape=self.content_image.shape)
+            R_voc = load_voc_mask(voc_names[1], shape=self.content_image.shape)
+
+            # Drop border and turn to binary
+            self.L = toMultipleArray(pngToMaskFormat(L_voc))[0:20].astype("float32")
+            self.R = toMultipleArray(pngToMaskFormat(R_voc))[0:20].astype("float32")
+
+            self.K = self.L.shape[0]
+
+            if debug:
+                show_masks(self.content_image, self.style_image, self.L, self.R, self.K, show_axis=True)
 
         self.build_and_optimize()
 
@@ -132,9 +151,9 @@ class StyleTransfer:
 
         with tf.name_scope("train"):
             cost_content = self.content_loss()
-            self.final_content_loss = self.lambda_ * cost_content
+            self.final_content_loss = self.content_loss_weight * cost_content
 
-            if self.K > 0:
+            if self.K > 0 or self.voc_names:
                 cost_style = self.style_loss_masks()
             else:
                 cost_style = self.style_loss_normal()
@@ -143,7 +162,7 @@ class StyleTransfer:
             #cost_style += self.affinity_loss()
             #cost_style = self.style_loss_masks_dummy()
 
-            self.final_style_loss =  (1 - self.lambda_) * (1 / len(self.style_layers_name)) * cost_style
+            self.final_style_loss = self.style_loss_weight * (1 / len(self.style_layers_name)) * cost_style
 
             #Matting
             M = tf.to_float(getLaplacian(self.content_image))
@@ -190,29 +209,37 @@ class StyleTransfer:
         # Output
         image_final = self.sess.run(image_out)
 
-        plt.figure(figsize=(12, 10))
-        plt.subplot(3, 3, 1)
+        plt.figure(figsize=(14, 12))
+        plt.subplot(4, 4, 1)
+        plt.imshow(self.init_image)
+
+        plt.subplot(4, 4, 2)
         plt.imshow(self.content_image)
 
-        plt.subplot(3, 3, 2)
+        plt.subplot(4, 4, 3)
         plt.imshow(self.style_image)
 
-        plt.subplot(3, 3, 3)
+        plt.subplot(4, 4, 4)
         plt.imshow(image_final)
 
         #writer = tf.summary.FileWriter("output", self.sess.graph)
+        self.image_final = image_final;
 
+    def get_final(self):
+        return self.image_final
 
-    def callback(self, content_loss, style_loss, affine_loss, tv_loss) :
+    def callback(self, content_loss, style_loss, affine_loss, tv_loss):
         global iter_count;
 
         if iter_count % 100 == 0:
             if self.debug:
-                print('Iteration {} / {}'.format(iter_count, self.num_iter))
-                print('Content loss: {}'.format(content_loss))
-                print('Style loss: {}'.format(style_loss))
-                print('Affine loss: {}'.format(affine_loss))
-                print('Tv loss: {}'.format(tv_loss))
+                print('Iteration {} / {} '.format(iter_count, self.num_iter))
+                print('Content loss: {} / No weight: {}'.format(content_loss, content_loss / self.content_loss_weight))
+                print('Style loss: {} / No weight: {}'.format(style_loss, style_loss / self.style_loss_weight))
+                print('Affine loss: {} / No weight: {}'.format(affine_loss, affine_loss / self.matting_loss))
+                print('Tv loss: {} / No weight: {}'.format(tv_loss, affine_loss / self.tv_loss))
+
+
 
         iter_count += 1
 
@@ -235,6 +262,50 @@ class StyleTransfer:
                 tensor = self.G_style_layers.get(key)
 
                 shape_g = tensor.get_shape().as_list()
+                g_mask = skimage.transform.resize(self.L[k][..., None], (shape_g[1], shape_g[2]),
+                                                                     mode='constant', order=0)
+                weighted_g_layer = tf.multiply(tensor, g_mask)
+                gram_g = self.compute_gram_tensor(weighted_g_layer)
+                g_mask_mean = tf.to_float(tf.reduce_mean(g_mask))
+
+                gram_g = tf.cond(tf.greater(g_mask_mean, 0.),
+                                        lambda: gram_g / (tf.to_float(tf.size(tensor)) * g_mask_mean),
+                                        lambda: gram_g
+                                    )
+
+
+                layer_s = self.style_layers.get(key)
+                shape_s = layer_s.shape
+                s_mask = skimage.transform.resize(self.R[k][..., None], (shape_s[1], shape_s[2]),
+                                                                      mode='constant', order=0)
+
+                weighted_s_layer = tf.multiply(layer_s, s_mask)
+                gram_s = self.compute_gram_tensor(weighted_s_layer)
+                s_mask_mean = tf.to_float(tf.reduce_mean(s_mask))
+
+                gram_s = tf.cond(tf.greater(s_mask_mean, 0.),
+                                        lambda: gram_s / (tf.to_float(layer_s.size) * s_mask_mean),
+                                        lambda: gram_s
+                                    )
+
+                '''
+                print(s_mask.shape)
+                plt.figure()
+                plt.imshow(g_mask[:,:,0])
+                plt.show()
+                '''
+
+                loss += tf.reduce_mean(tf.squared_difference(gram_g, gram_s)) * g_mask_mean
+
+        return loss
+
+    def style_loss_masks_old(self):
+        loss = 0
+        for key in self.style_layers:
+            for k in range(0, self.K + self.orphan):
+                tensor = self.G_style_layers.get(key)
+
+                shape_g = tensor.get_shape().as_list()
                 weighted_g_layer = tensor * skimage.transform.resize(self.L[k][..., None], (shape_g[1], shape_g[2]),
                                                                      mode='constant', order=0)
                 gram_g = self.compute_gram_tensor(weighted_g_layer)
@@ -249,7 +320,7 @@ class StyleTransfer:
                 M = shape_g[3]
                 N = shape_g[1] * shape_g[2]
 
-                loss += (1 / self.K) * tf.reduce_sum(tf.pow((gram_g - gram_s), 2)) * (1. / (4 * N ** 2 * M ** 2))
+                loss += tf.reduce_mean(tf.pow((gram_g - gram_s), 2) * (1. / (4 * N ** 2 * M ** 2)))
 
         return loss
 
@@ -300,7 +371,7 @@ class StyleTransfer:
                 M = shape_g[3]
                 N = shape_g[1] * shape_g[2]
 
-                loss += (1/self.K) * tf.reduce_sum(tf.pow((gram_g - gram_s), 2)) * (1. / (4 * N ** 2 * M ** 2))
+                loss += (1/self.K) * tf.reduce_mean(tf.pow((gram_g - gram_s), 2)) * (1. / (4 * N ** 2 * M ** 2))
 
 
         return loss
@@ -321,23 +392,22 @@ class StyleTransfer:
             N = shape[1] * shape[2]
 
             # loss += tf.nn.l2_loss(gram_g - gram_s) * 1./(4 * N**2 * M**2)
-            # loss += tf.reduce_sum(tf.pow((gram_g - gram_s), 2)) * (1. / (4 * N ** 2 * M ** 2))
-            loss += tf.reduce_sum(tf.pow((gram_g - gram_s), 2) * (1. / (4 * (N ** 2) * (M ** 2))) )
+            # loss += tf.reduce_mean(tf.pow((gram_g - gram_s), 2)) * (1. / (4 * N ** 2 * M ** 2))
+            loss += tf.reduce_mean(tf.pow((gram_g - gram_s), 2)) * (1. / (4 * (N ** 2) * (M ** 2)))
 
         return loss
 
     def content_loss(self):
 
         shape = self.content_layer.get(self.content_layer_name[0]).shape
-        print(shape);
 
-        return tf.reduce_sum(tf.pow(
+        return tf.reduce_mean(tf.pow(
             self.content_layer.get(self.content_layer_name[0]) - self.G_content_layer.get(self.content_layer_name[0]),
-            2) * 1. / (2 * shape[3] * shape[1] * shape[2]) )
+            2)) * 1. / (2 * shape[3] * shape[1] * shape[2])
 
     def affinity_loss(self):
 
-        return tf.reduce_sum(tf.pow(
+        return tf.reduce_mean(tf.pow(
             self.A - self.compute_affinity_matrix_tf(self.G_content_layer.get(self.content_layer_name[0]),
                                                      tf.convert_to_tensor(
                                                          self.style_layer.get(self.content_layer_name[0]))),
