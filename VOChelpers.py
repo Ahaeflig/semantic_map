@@ -10,6 +10,10 @@ import sklearn
 import skimage
 from matplotlib import pyplot as plt
 
+'''
+Helpers file with function useful to work with VOC Pascal
+'''
+
 root_dir = "data/VOC/VOCdevkit/VOC2012/"
 img_dir = os.path.join(root_dir, 'JPEGImages/')
 seg_class_dir = os.path.join(root_dir, 'SegmentationClass/')
@@ -17,7 +21,7 @@ ann_dir = os.path.join(root_dir, 'Annotations')
 set_dir = os.path.join(root_dir, 'ImageSets', 'Main')
 segmentation_dir = os.path.join(root_dir, 'ImageSets', 'Segmentation')
 
-N_CLASSES = 21
+N_CLASSES = 22
 
 
 def list_image_segmentation(dataset="train"):
@@ -29,8 +33,8 @@ def list_image_segmentation(dataset="train"):
     return df
 
 
-#Loads image and its segmentation
-#Return image and mask as array (pair) in range [0,1]
+# Loads image and its segmentation
+# Return image and mask as array (pair) in range [0,1]
 def load_pair_voc(img_name, shape):
 
     img_file = os.path.join(img_dir, img_name + ".jpg")
@@ -44,14 +48,14 @@ def load_pair_voc(img_name, shape):
 
     return [img, mask]
 
-#Load mask from voc image
+# Load mask from voc image
 def load_voc_mask(img_name, shape):
     mask_file = os.path.join(seg_class_dir, img_name + ".png")
     image_mask = PIL.Image.open(mask_file)
     mask = image_mask.resize((shape[1], shape[0]), PIL.Image.NEAREST)
     return mask
 
-#Load mask from voc image
+# Load mask from voc image
 def load_voc_img(img_name, shape):
     img_file = os.path.join(img_dir, img_name + ".jpg")
     img = PIL.Image.open(img_file)
@@ -59,9 +63,7 @@ def load_voc_img(img_name, shape):
     img = img.resize((shape[1], shape[0]), Image.ANTIALIAS)
     return img
 
-
-
-#Turns a png image into the proper segmentation mask with values [0, N_CLASSES+1]
+# Turns a png image into the proper segmentation mask with values [0, N_CLASSES+1]
 def pngToMaskFormat(img):
     return np.array(img.convert(mode="P", palette=Image.ADAPTIVE, colors=N_CLASSES))
 
@@ -70,7 +72,6 @@ def pngToMaskFormat(img):
 # argument comes from pngToMaskFormat
 def toMultipleArray(PconvertedImage):
     final_ = np.zeros((N_CLASSES, PconvertedImage.shape[0], PconvertedImage.shape[1]))
-
     for i in range(PconvertedImage.shape[0]):
         for j in range(PconvertedImage.shape[1]):
             pixel_val = PconvertedImage[i, j]
@@ -86,7 +87,6 @@ def computeAcc(test, model):
     #First binarize
     mask = np.where(test > 0.5, 1.0, 0.0)
     return sklearn.metrics.accuracy_score(model.flatten(), mask.flatten())
-
 
 
 '''
@@ -135,7 +135,7 @@ def load_annotation(img_filename):
     with open(annotation_file_from_img(img_filename)) as f:
         xml = f.readlines()
     xml = ''.join([line.strip('\t') for line in xml])
-    return BeautifulSoup(xml)
+    return BeautifulSoup(xml, "html5lib")
 
 
 def load_data_multilabel(data_type=None):

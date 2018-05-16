@@ -10,7 +10,10 @@ from collections import OrderedDict
 
 VGG_MEAN = [103.939, 116.779, 123.68]
 
-
+'''
+VGG Model
+expected input in range [0,1]
+'''
 class Vgg19:
     def __init__(self, vgg19_npy_path=None):
         if vgg19_npy_path is None:

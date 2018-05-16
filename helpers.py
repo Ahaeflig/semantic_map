@@ -9,13 +9,14 @@ from sklearn import decomposition
 from matplotlib import pyplot as plt
 
 from collections import OrderedDict
+import time
 
 import tensorflow as tf
 import vgg19
 
 # DCRF
 import pydensecrf.densecrf as dcrf
-from pydensecrf.utils import unary_from_softmax
+from pydensecrf.utils import unary_from_softmax, compute_unary, create_pairwise_bilateral, create_pairwise_gaussian
 import scipy
 import scipy.ndimage
 
@@ -84,7 +85,7 @@ def load_image2(path, height=None, width=None):
 '''
 
 
-# Expects a built VGG model from vgg19
+# Expects a built VGG model from vgg19, note that it returns a dictionary!
 def eval_layers(sess, image, vgg, layer_names=["conv4_4"]):
     assert layer_names
 
@@ -118,6 +119,7 @@ def eval_layers(sess, image, vgg, layer_names=["conv4_4"]):
     return OrderedDict(sorted(layers.items()))
 
 
+# return dict with layer from vgg, note that it returns a dictionary!
 def get_layers(vgg, layer_names=["conv4_4"]):
     assert layer_names
 
@@ -149,7 +151,7 @@ def get_layers(vgg, layer_names=["conv4_4"]):
     return OrderedDict(sorted(layers.items()))
 
 
-# returns the top1 string
+# returns the top1 string from vgg pred
 def print_prob(prob, file_path):
     synset = [l.strip() for l in open(file_path).readlines()]
 
@@ -172,7 +174,7 @@ def print_prob(prob, file_path):
 '''
 
 
-# Maps shape should be [1, H, W, C]
+# Maps shape should be [1, H, W, C] tensorflow version in StyleTransfer
 def compute_affinity_matrix(content_maps, reference_maps):
 
     content_maps = np.squeeze(content_maps, axis=0)
@@ -199,12 +201,6 @@ def get_masks(K, affinity_matrix, shape_r, shape_l, orphan=False, normalize=Fals
 
 
     if normalize:
-        '''
-        maxLR = max(L.max(), R.max())
-        print(maxLR)
-        L /= maxLR;
-        R /= maxLR;
-        '''
         for k in range(K):
             maxL = L[k].max()
             L[k] /= maxL
@@ -212,41 +208,24 @@ def get_masks(K, affinity_matrix, shape_r, shape_l, orphan=False, normalize=Fals
             maxR = R[k].max()
             R[k] /= maxR;
 
-    '''else:
-        for k in range(K):
-            maxLR = max(L[k].max(), R[k].max())
-            print(maxLR)
-            L[k] /= maxLR;
-            R[k] /= maxLR;
-            '''
+    L_orphan = np.ones(L[0].shape) * L.mean()
+    R_orphan = np.ones(R[0].shape) * R.mean()
 
-    if orphan:
-        '''L_all = L.sum(axis=0)
-        # np.clip(L_all, 0.0, 1.0, L_all)
-        L_all /= L_all.max()
-        L_orphan = 1 - L_all
-        L = np.concatenate((L, L_orphan[None, ...]))
+    L = np.concatenate((L, L_orphan[None, ...]))
+    R = np.concatenate((R, R_orphan[None, ...]))
 
-        R_all = R.sum(axis=0)
-        # np.clip(R_all, 0.0, 1.0, R_all)
-        R_all /= R_all.max()
-        R_orphan = 1 - R_all
-        R = np.concatenate((R, R_orphan[None, ...]))
-        '''
+    Lsm = softmax(L.reshape((L.shape[0], -1)).transpose() / soft_temp).transpose().reshape(L.shape)
+    Rsm = softmax(R.reshape((R.shape[0], -1)).transpose() / soft_temp).transpose().reshape(R.shape)
 
-        L_orphan = np.ones(L[0].shape) * L.mean()
-        R_orphan = np.ones(R[0].shape) * R.mean()
-
-        L = np.concatenate((L, L_orphan[None, ...]))
-        R = np.concatenate((R, R_orphan[None, ...]))
-
-        Lsm = softmax(L.reshape((L.shape[0], -1)).transpose() / soft_temp).transpose().reshape(L.shape)
-        Rsm = softmax(R.reshape((R.shape[0], -1)).transpose() / soft_temp).transpose().reshape(R.shape)
+    if not orphan:
+        Lsm = Lsm[0:K]
+        Rsm = Rsm[0:K]
 
     return Lsm, Rsm
 
 
-def show_masks(original_left, original_right, L, R, K, cmap="Blues", normalized=True, show_original=True, show_axis=False, vmax=1):
+# Handy function to show K mask pairs
+def show_masks(original_left, original_right, L, R, K, cmap="Blues", normalized=False, show_original=True, show_axis=False, vmax=None):
 
     plt.figure(figsize=(10, 8))
     plt.title("Original")
@@ -314,6 +293,78 @@ def show_masks(original_left, original_right, L, R, K, cmap="Blues", normalized=
 ====================
 '''
 
+def crf(img, prob):
+    '''
+    input:
+      img: numpy array of shape (num of channels, height, width)
+      prob: numpy array of shape ( height, width, 1), neural network last layer sigmoid output for img
+    output:
+      res: (1, height, width)
+    Modified from:
+      http://warmspringwinds.github.io/tensorflow/tf-slim/2016/12/18/image-segmentation-with-tensorflow-using-cnns-and-conditional-random-fields/
+      https://github.com/yt605155624/tensorflow-deeplab-resnet/blob/e81482d7bb1ae674f07eae32b0953fe09ff1c9d1/inference_crf.py
+    '''
+    func_start = time.time()
+
+    # img.shape: (width, height, num of channels)
+    mask = prob;
+    mask = skimage.transform.resize(mask, img.shape[0:2], mode='constant', order=1)
+
+    prob = mask[None, ...]
+
+    #plt.imshow(mask)
+
+    num_iter = 5
+    img = np.swapaxes(img, 0, 1)
+
+    prob = np.swapaxes(prob, 1, 2)  # shape: (1, width, height)
+
+    # preprocess prob to (num_classes, width, height) since we have 2 classes: car and background.
+    num_classes = 2
+    probs = np.tile(prob, (num_classes, 1, 1))  # shape: (2, width, height)
+    probs[0] = np.subtract(1, prob)  # class 0 is background
+    probs[1] = prob  # class 1 is car
+
+    d = dcrf.DenseCRF(img.shape[0] * img.shape[1], num_classes)
+
+    unary = unary_from_softmax(probs)  # shape: (num_classes, width * height)
+    unary = np.ascontiguousarray(unary)
+    d.setUnaryEnergy(unary)
+
+    # This potential penalizes small pieces of segmentation that are
+    # spatially isolated -- enforces more spatially consistent segmentations
+    feats = create_pairwise_gaussian(sdims=(10, 10), shape=img.shape[:2])
+    d.addPairwiseEnergy(feats, compat=3,
+                        kernel=dcrf.DIAG_KERNEL,
+                        normalization=dcrf.NORMALIZE_SYMMETRIC)
+    # Note that this potential is not dependent on the image itself.
+
+    # This creates the color-dependent features --
+    # because the segmentation that we get from CNN are too coarse
+    # and we can use local color features to refine them
+    feats = create_pairwise_bilateral(sdims=(50, 50), schan=(20, 20, 20),
+                                      img=img, chdim=2)
+
+    d.addPairwiseEnergy(feats, compat=10,
+                        kernel=dcrf.DIAG_KERNEL,
+                        normalization=dcrf.NORMALIZE_SYMMETRIC)
+
+    Q = d.inference(num_iter)  # set the number of iterations
+    res = np.argmax(Q, axis=0).reshape((img.shape[0], img.shape[1]))
+    # res.shape: (width, height)
+
+    res = np.swapaxes(res, 0, 1)  # res.shape:    (height, width)
+    res = res[np.newaxis, :, :]  # res.shape: (1, height, width)
+
+    func_end = time.time()
+    # print('{:.2f} sec spent on CRF with {} iterations'.format(func_end - func_start, num_iter))
+    # about 2 sec for a 1280 * 960 image with 5 iterations
+
+    return res
+
+'''
+OTHER CRF FUNCTIONS TESTED
+
 def refine_mask(mask_in=None):
     mask_in = mask_in.astype(np.uint8)
     mask_out = scipy.ndimage.morphology.binary_fill_holes(mask_in)  # fill in the holes
@@ -349,11 +400,51 @@ def dcrf_refine(img, mask):
     return labels_c
 
 
+def refine_crf(im, lb):
+    softmax = lb.transpose((2, 0, 1))
+
+    # The input should be the negative of the logarithm of probability values
+    # Look up the definition of the softmax_to_unary for more information
+    unary = unary_from_softmax(softmax)
+
+    # The inputs should be C-continious -- we are using Cython wrapper
+    unary = np.ascontiguousarray(unary)
+
+    d = dcrf.DenseCRF(im.shape[0] * im.shape[1], 2)
+
+    d.setUnaryEnergy(unary)
+
+    # This potential penalizes small pieces of segmentation that are
+    # spatially isolated -- enforces more spatially consistent segmentations
+    feats = create_pairwise_gaussian(sdims=(10, 10), shape=im.shape[:2])
+
+    d.addPairwiseEnergy(feats, compat=3,
+                        kernel=dcrf.DIAG_KERNEL,
+                        normalization=dcrf.NORMALIZE_SYMMETRIC)
+
+    # This creates the color-dependent features --
+    # because the segmentation that we get from CNN are too coarse
+    # and we can use local color features to refine them
+    feats = create_pairwise_bilateral(sdims=(50, 50), schan=(20, 20, 20),
+                                      img=im, chdim=2)
+
+    d.addPairwiseEnergy(feats, compat=10,
+                        kernel=dcrf.DIAG_KERNEL,
+                        normalization=dcrf.NORMALIZE_SYMMETRIC)
+    Q = d.inference(5)
+
+    res = np.argmax(Q, axis=0).reshape((im.shape[0], im.shape[1]))
+
+    return res
+
 
 '''
-========================================
-    MATTING LAPLACIAN CODE FROM 
-========================================
+
+
+'''
+==========================================
+    MATTING LAPLACIAN CODE FROM DEEPSTYLE
+==========================================
 '''
 
 def getLaplacian(img):

@@ -11,6 +11,11 @@ from collections import OrderedDict
 VGG_MEAN = [103.939, 116.779, 123.68]
 
 
+'''
+VGG Model with atrous conv
+expected input in range [0,1]
+rate and strides can be changed to test different combinations
+'''
 class Vgg19_Atrous:
     def __init__(self, vgg19_npy_path=None):
         if vgg19_npy_path is None:
@@ -52,21 +57,21 @@ class Vgg19_Atrous:
         self.conv2_2 = self.conv_layer(self.conv2_1, "conv2_2")
         self.pool2 = self.max_pool(self.conv2_2, 'pool2')
 
-        rate = 1
+        rate = 1;
         self.conv3_1 = self.conv_layer_atrous(self.pool2, "conv3_1", rate)
         self.conv3_2 = self.conv_layer_atrous(self.conv3_1, "conv3_2", rate)
         self.conv3_3 = self.conv_layer_atrous(self.conv3_2, "conv3_3", rate)
         self.conv3_4 = self.conv_layer_atrous(self.conv3_3, "conv3_4", rate)
-        self.pool3 = self.max_pool(self.conv3_4, 'pool3')
+        self.pool3 = self.max_pool(self.conv3_4, 'pool3', stride=2)
 
         rate = 1;
         self.conv4_1 = self.conv_layer_atrous(self.pool3, "conv4_1", rate)
         self.conv4_2 = self.conv_layer_atrous(self.conv4_1, "conv4_2", rate)
         self.conv4_3 = self.conv_layer_atrous(self.conv4_2, "conv4_3", rate)
         self.conv4_4 = self.conv_layer_atrous(self.conv4_3, "conv4_4", rate)
-        self.pool4 = self.max_pool(self.conv4_4, 'pool4', stride=1)
+        self.pool4 = self.max_pool(self.conv4_4, 'pool4', stride=2)
 
-        rate = 2;
+        rate = 1;
         self.conv5_1 = self.conv_layer_atrous(self.pool4, "conv5_1", rate)
         self.conv5_2 = self.conv_layer_atrous(self.conv5_1, "conv5_2", rate)
         self.conv5_3 = self.conv_layer_atrous(self.conv5_2, "conv5_3", rate)
